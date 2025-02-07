@@ -64,6 +64,24 @@ impl MachineGroup {
 	    return max_idx;
     }
     
+    pub fn min_makespan_machine(&self) -> MachineId {
+	    let mut min = u32::MAX;
+	    let mut min_idx = 0;
+	    for i in 0..self.machines.len() {
+	        if self.machines[i].makespan() < min {
+	            min = self.machines[i].makespan();
+	            min_idx = i;
+	        }
+	    }
+	    return min_idx;
+    }
+    
+    /*
+        TODO: 
+        Se a máquina for a última, seu vizinho imediato a direita deve ser a 
+        primeira máquina. Considerar Considerar retornar o vizinho mais livre ou
+        mesmo ambos os vizinhos.
+    */
     pub fn neighbor_id(&self, target: MachineId) -> Option<MachineId> {
         let neighbor = target + 1;
         if neighbor > self.machines.len() {
@@ -74,7 +92,7 @@ impl MachineGroup {
         }
     }
 
-    pub fn peek_task(&self, mach_id: MachineId) -> Option<Task> {
+    pub fn peek_last_task(&self, mach_id: MachineId) -> Option<Task> {
         let n = self.machines[mach_id].tasks.len();
         if n == 0 {
             return None;
@@ -82,16 +100,58 @@ impl MachineGroup {
         return Some(self.machines[mach_id].tasks[n - 1]);
     }
     
-    fn pop_task(&mut self, mach_id: MachineId) -> Option<Task> {
+    pub fn peek_highest_task(&self, mach_id: MachineId) -> Option<(Task, usize)> {
+        let n = self.machines[mach_id].tasks.len();
+        if n == 0 {
+            return None;
+        }
+        let mut max = 0;
+	    let mut max_idx = 0;
+	    for i in 0..self.machines[mach_id].tasks.len() {
+	        if self.machines[mach_id].tasks[i] > max {
+	            max = self.machines[mach_id].tasks[i];
+	            max_idx = i;
+	        }
+	    }
+        
+        return Some(
+            (self.machines[mach_id].tasks[max_idx], max_idx)
+        );
+    }
+    
+    fn pop_last_task(&mut self, mach_id: MachineId) -> Option<Task> {
         return self.machines[mach_id].tasks.pop();
+    }
+    
+    fn pop_task(&mut self, mach_id: MachineId, task_id: usize) -> Option<Task> {
+        if task_id >= self.machines[mach_id].tasks.len() {
+            return None;
+        }
+        return Some(self.machines[mach_id].tasks.swap_remove(task_id));
     }
     
     fn push_task(&mut self, mach_id: MachineId, task: Task){
         self.machines[mach_id].tasks.push(task);
     }
     
-    pub fn transfer_task(&mut self, source_id: MachineId, dest_id: MachineId) -> bool {
-        match self.pop_task(source_id) {
+    pub fn transfer_last_task(
+        &mut self, 
+        source_id: MachineId, 
+        dest_id: MachineId
+    ) -> bool {
+        match self.pop_last_task(source_id) {
+            Some(e) => {self.push_task(dest_id, e); true}
+            None => false
+        }
+    }
+    
+    pub fn transfer_task(
+        &mut self, 
+        source_id: MachineId, 
+        dest_id: MachineId, 
+        task_id: usize
+    ) -> bool {
+        match self.pop_task(source_id, task_id) {
             Some(e) => {self.push_task(dest_id, e); true}
             None => false
         }
@@ -111,15 +171,18 @@ pub fn display_group(group: &MachineGroup){
 pub fn display_info(
     machine: MachineId,
     makespan: u32,
+    task: u32,
+    neighbor_id: usize,
     neighbor_makespan: u32,
-    task: u32
+    
 ) {
 	println!(
-	    "Machine M{} \nMakespan: {}\nNeigbor makespan: {}\nTask Time: {}\n", 
+	    "Machine M{} \nMakespan: {}\nTask Time: {}\nNeighbor M{}\nNeighbor makespan: {}\n", 
 	    machine+1, 
 	    makespan, 
-	    neighbor_makespan, 
-	    task
+	    task,
+	    neighbor_id,
+	    neighbor_makespan
 	   );
 }
 
@@ -129,7 +192,34 @@ pub fn display_info(
 // TASK.TIME + MAC_VIZINHA.MAKESPAN < MAKESPAN
 // TRUE: TRANSFIRO A TASK PARA A MÁQUINA VIZINHA
 // FALSE: ENCERRA O LOOP
-fn local_search_best(mg: &mut MachineGroup) {}
+fn local_search_best(mg: &mut MachineGroup) {
+    if mg.machines.len() < 2 {
+        return;
+    }
+    
+    loop {
+        let source_id = mg.max_makespan_machine();
+  
+        let (task, task_id) = match mg.peek_highest_task(source_id) {
+            Some(e) => e,
+            None => break,
+        };
+        
+        let dest_id = mg.min_makespan_machine();
+        
+        let source_makespan = mg.machines[source_id].makespan(); 
+        
+        let dest_makespan = mg.machines[dest_id].makespan();
+        
+        if task + dest_makespan <  source_makespan {
+            display_info(source_id, source_makespan, task, dest_id, dest_makespan);
+            mg.transfer_task(source_id, dest_id, task_id);
+        }
+        else {
+            break;
+        }   
+    }
+}
 
 // PEGO A MÁQUINA COM MAIOR MAKESPAN (1)
 // GUARDO O MAKESPAN (16)
@@ -145,23 +235,23 @@ fn local_search_first(mg: &mut MachineGroup) {
     loop {
         let source_id = mg.max_makespan_machine();
     
-        let neighbor_id = match mg.neighbor_id(source_id){
+        let dest_id = match mg.neighbor_id(source_id){
             Some(id) => id,
             None => break,
         };
         
-        let task_time = match mg.peek_task(source_id) {
+        let task = match mg.peek_last_task(source_id) {
             Some(e) => e,
             None => break,
         };
         
         let source_makespan = mg.machines[source_id].makespan(); 
         
-        let dest_makespan = mg.machines[neighbor_id].makespan();
+        let dest_makespan = mg.machines[dest_id].makespan();
         
-        if task_time + dest_makespan <  source_makespan {
-            display_info(source_id, source_makespan, dest_makespan, task_time);
-            mg.transfer_task(source_id, neighbor_id);
+        if task + dest_makespan <  source_makespan {
+            display_info(source_id, source_makespan, task, dest_id, dest_makespan);
+            mg.transfer_last_task(source_id, dest_id);
         }
         else {
             break;
@@ -180,7 +270,8 @@ pub fn main(){
     }
     display_group(&group);
     
-    local_search_first(&mut group);
+    //local_search_first(&mut group);
+    local_search_best(&mut group);
     
     display_group(&group);
 }
