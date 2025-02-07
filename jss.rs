@@ -123,7 +123,21 @@ pub fn display_info(
 	   );
 }
 
-fn local_search(mg: &mut MachineGroup) {
+// PEGO A MÁQUINA COM MAIOR MAKESPAN
+// PEGO DELA A TAREFA COM MAIOR TIME
+// PEGO A MÁQUINA COM MENOR MAKESPAN
+// TASK.TIME + MAC_VIZINHA.MAKESPAN < MAKESPAN
+// TRUE: TRANSFIRO A TASK PARA A MÁQUINA VIZINHA
+// FALSE: ENCERRA O LOOP
+fn local_search_best(mg: &mut MachineGroup) {}
+
+// PEGO A MÁQUINA COM MAIOR MAKESPAN (1)
+// GUARDO O MAKESPAN (16)
+// PEGO UMA TASK DO TOPO (5)
+// TASK.TIME(5) + MAC_VIZINHA.MAKESPAN(0) < MAKESPAN(16) 
+// TRUE: TRANSFIRO A TASK PARA A MÁQUINA VIZINHA
+// FALSE: ENCERRA O LOOP
+fn local_search_first(mg: &mut MachineGroup) {
     if mg.machines.len() < 2 {
         return;
     }
@@ -166,7 +180,7 @@ pub fn main(){
     }
     display_group(&group);
     
-    local_search(&mut group);
+    local_search_first(&mut group);
     
     display_group(&group);
 }
