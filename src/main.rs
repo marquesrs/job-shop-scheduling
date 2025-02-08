@@ -234,35 +234,6 @@ fn local_search_best(mg: &mut MachineGroup) {
 // FALSE: ENCERRA O LOOP
 fn local_search_first(mg: &mut MachineGroup) {
     todo!("Sera?");
-    // if mg.machines.len() < 2 {
-    //     return;
-    // }
-    
-    // loop {
-    //     let source_id = mg.max_makespan_machine();
-    
-    //     let dest_id = match mg.neighbor_id(source_id){
-    //         Some(id) => id,
-    //         None => break,
-    //     };
-        
-    //     let task = match mg.peek_last_task(source_id) {
-    //         Some(e) => e,
-    //         None => break,
-    //     };
-        
-    //     let source_makespan = mg.machines[source_id].makespan(); 
-        
-    //     let dest_makespan = mg.machines[dest_id].makespan();
-        
-    //     if task + dest_makespan <  source_makespan {
-    //         display_info(source_id, source_makespan, task, dest_id, dest_makespan);
-    //         mg.transfer_last_task(source_id, dest_id);
-    //     }
-    //     else {
-    //         break;
-    //     }   
-    // }
 }
 
 pub fn main(){
