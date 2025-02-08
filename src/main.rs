@@ -266,22 +266,24 @@ fn local_search_first(mg: &mut MachineGroup) {
 
 pub fn main(){
     const M: [usize; 3] = [10, 20, 50];
-    const N: [f32; 2] = [1.5, 2.0];
+    const R: [f32; 2] = [1.5, 2.0];
 
     let mut rng = rand::rng();
 
     let mut group;
     let mut tasks: Vec<Task> = Vec::new();
-    /*
+    
     for m in M {
         group = MachineGroup::new(m);
-        for n in N {
-            for i in 0..n.powf(m) {
-                task.push(rng.random_range(1..=100));
+        for r in R {
+            let m = m as f32;
+            let n = m.powf(r).ceil() as usize;
+            for i in 0..n {
+                tasks.push(rng.random_range(1..=100));
             }
         }
     }
-    */
+    
     group = MachineGroup::new(10);
     for i in 0..32 {
         tasks.push(rng.random_range(1..=10))
