@@ -233,66 +233,47 @@ fn local_search_best(mg: &mut MachineGroup) {
 // TRUE: TRANSFIRO A TASK PARA A MÁQUINA VIZINHA
 // FALSE: ENCERRA O LOOP
 fn local_search_first(mg: &mut MachineGroup) {
-    if mg.machines.len() < 2 {
-        return;
-    }
+    todo!("Sera?");
+    // if mg.machines.len() < 2 {
+    //     return;
+    // }
     
-    loop {
-        let source_id = mg.max_makespan_machine();
+    // loop {
+    //     let source_id = mg.max_makespan_machine();
     
-        let dest_id = match mg.neighbor_id(source_id){
-            Some(id) => id,
-            None => break,
-        };
+    //     let dest_id = match mg.neighbor_id(source_id){
+    //         Some(id) => id,
+    //         None => break,
+    //     };
         
-        let task = match mg.peek_last_task(source_id) {
-            Some(e) => e,
-            None => break,
-        };
+    //     let task = match mg.peek_last_task(source_id) {
+    //         Some(e) => e,
+    //         None => break,
+    //     };
         
-        let source_makespan = mg.machines[source_id].makespan(); 
+    //     let source_makespan = mg.machines[source_id].makespan(); 
         
-        let dest_makespan = mg.machines[dest_id].makespan();
+    //     let dest_makespan = mg.machines[dest_id].makespan();
         
-        if task + dest_makespan <  source_makespan {
-            display_info(source_id, source_makespan, task, dest_id, dest_makespan);
-            mg.transfer_last_task(source_id, dest_id);
-        }
-        else {
-            break;
-        }   
-    }
+    //     if task + dest_makespan <  source_makespan {
+    //         display_info(source_id, source_makespan, task, dest_id, dest_makespan);
+    //         mg.transfer_last_task(source_id, dest_id);
+    //     }
+    //     else {
+    //         break;
+    //     }   
+    // }
 }
 
 pub fn main(){
-    const M: [usize; 3] = [10, 20, 50];
-    const R: [f32; 2] = [1.5, 2.0];
-
     let mut rng = rand::rng();
 
-    let mut group;
-    let mut tasks: Vec<Task> = Vec::new();
-    
-    for m in M {
-        group = MachineGroup::new(m);
-        for r in R {
-            let m = m as f32;
-            let n = m.powf(r).ceil() as usize;
-            for i in 0..n {
-                tasks.push(rng.random_range(1..=100));
-            }
-        }
+    let mut group = MachineGroup::new(10);
+
+    for _ in 0..32 {
+        group.push_task(0, rng.random_range(1..=30));
     }
-    
-    group = MachineGroup::new(10);
-    for i in 0..32 {
-        tasks.push(rng.random_range(1..=10))
-    }
-    
-    
-    for task in tasks {
-        group.push_task(0, task);
-    }
+
     display_group(&group);
     
     //local_search_first(&mut group);
