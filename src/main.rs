@@ -1,4 +1,4 @@
-use rand::Rng;
+use rand::{random_range, rng, Rng};
 
 type Task = u32;
 
@@ -16,27 +16,23 @@ impl Machine {
         }
         return acc;
     }
-    
+
     pub fn new() -> Self {
-		Self {
-			tasks: Vec::new(),
-		}
-	}
-	
-	pub fn from_tasks(tasks: Vec<Task>) -> Self {
-		Self {
-			tasks: tasks,
-		}
-	}
+        Self { tasks: Vec::new() }
+    }
+
+    pub fn from_tasks(tasks: Vec<Task>) -> Self {
+        Self { tasks: tasks }
+    }
 }
 
 pub struct MachineGroup {
-    machines: Vec<Machine>,    
+    machines: Vec<Machine>,
 }
 
 impl MachineGroup {
     pub fn new(mach_count: usize) -> Self {
-        let mut group= MachineGroup {
+        let mut group = MachineGroup {
             machines: Vec::new(),
         };
         for _ in 0..mach_count {
@@ -52,33 +48,33 @@ impl MachineGroup {
         }
         return max_span;
     }
-    
+
     pub fn max_makespan_machine(&self) -> MachineId {
-	    let mut max = 0;
-	    let mut max_idx = 0;
-	    for i in 0..self.machines.len() {
-	        if self.machines[i].makespan() > max {
-	            max = self.machines[i].makespan();
-	            max_idx = i;
-	        }
-	    }
-	    return max_idx;
+        let mut max = 0;
+        let mut max_idx = 0;
+        for i in 0..self.machines.len() {
+            if self.machines[i].makespan() > max {
+                max = self.machines[i].makespan();
+                max_idx = i;
+            }
+        }
+        return max_idx;
     }
-    
+
     pub fn min_makespan_machine(&self) -> MachineId {
-	    let mut min = u32::MAX;
-	    let mut min_idx = 0;
-	    for i in 0..self.machines.len() {
-	        if self.machines[i].makespan() < min {
-	            min = self.machines[i].makespan();
-	            min_idx = i;
-	        }
-	    }
-	    return min_idx;
+        let mut min = u32::MAX;
+        let mut min_idx = 0;
+        for i in 0..self.machines.len() {
+            if self.machines[i].makespan() < min {
+                min = self.machines[i].makespan();
+                min_idx = i;
+            }
+        }
+        return min_idx;
     }
-    
+
     /*
-        TODO: 
+        TODO:
         Sempre retorna o vizinho à direita.
         Considerar retornar o vizinho mais livre ou mesmo ambos os vizinhos.
     */
@@ -86,8 +82,7 @@ impl MachineGroup {
         let neighbor = target + 1;
         if neighbor > self.machines.len() {
             return None;
-        }
-        else {
+        } else {
             return Some(neighbor);
         }
     }
@@ -99,75 +94,85 @@ impl MachineGroup {
         }
         return Some(self.machines[mach_id].tasks[n - 1]);
     }
-    
+
+    pub fn select_neighbor_rng(&self, mach_id: MachineId) -> MachineId {
+        assert!(self.machines.len() > 1, "Cannot pick random neighbor without at least 2 machines");
+        loop {
+            let neighbor = random_range(0..self.machines.len());
+            if neighbor != mach_id {
+                return neighbor;
+            }
+        }
+    }
+
     pub fn peek_highest_task(&self, mach_id: MachineId) -> Option<(Task, usize)> {
         let n = self.machines[mach_id].tasks.len();
         if n == 0 {
             return None;
         }
         let mut max = 0;
-	    let mut max_idx = 0;
-	    for i in 0..self.machines[mach_id].tasks.len() {
-	        if self.machines[mach_id].tasks[i] > max {
-	            max = self.machines[mach_id].tasks[i];
-	            max_idx = i;
-	        }
-	    }
-        
-        return Some(
-            (self.machines[mach_id].tasks[max_idx], max_idx)
-        );
+        let mut max_idx = 0;
+        for i in 0..self.machines[mach_id].tasks.len() {
+            if self.machines[mach_id].tasks[i] > max {
+                max = self.machines[mach_id].tasks[i];
+                max_idx = i;
+            }
+        }
+
+        return Some((self.machines[mach_id].tasks[max_idx], max_idx));
     }
-    
+
     fn pop_last_task(&mut self, mach_id: MachineId) -> Option<Task> {
         return self.machines[mach_id].tasks.pop();
     }
-    
+
     fn pop_task(&mut self, mach_id: MachineId, task_id: usize) -> Option<Task> {
         if task_id >= self.machines[mach_id].tasks.len() {
             return None;
         }
         return Some(self.machines[mach_id].tasks.swap_remove(task_id));
     }
-    
-    fn push_task(&mut self, mach_id: MachineId, task: Task){
+
+    fn push_task(&mut self, mach_id: MachineId, task: Task) {
         self.machines[mach_id].tasks.push(task);
     }
-    
-    pub fn transfer_last_task(
-        &mut self, 
-        source_id: MachineId, 
-        dest_id: MachineId
-    ) -> bool {
+
+    pub fn transfer_last_task(&mut self, source_id: MachineId, dest_id: MachineId) -> bool {
         match self.pop_last_task(source_id) {
-            Some(e) => {self.push_task(dest_id, e); true}
-            None => false
+            Some(e) => {
+                self.push_task(dest_id, e);
+                true
+            }
+            None => false,
         }
     }
-    
+
     pub fn transfer_task(
-        &mut self, 
-        source_id: MachineId, 
-        dest_id: MachineId, 
-        task_id: usize
+        &mut self,
+        source_id: MachineId,
+        dest_id: MachineId,
+        task_id: usize,
     ) -> bool {
         match self.pop_task(source_id, task_id) {
-            Some(e) => {self.push_task(dest_id, e); true}
-            None => false
+            Some(e) => {
+                self.push_task(dest_id, e);
+                true
+            }
+            None => false,
         }
     }
 }
 
-pub fn display_group(group: &MachineGroup){
+pub fn display_group(group: &MachineGroup) {
     println!("group makespan: {}", group.group_makespan());
     for mach_id in 0..group.machines.len() {
         print!(
-            "Makespan: {} M{}: ", 
-            group.machines[mach_id].makespan(), 
+            "Makespan: {} M{}: ",
+            group.machines[mach_id].makespan(),
             mach_id
         );
         for task in &group.machines[mach_id].tasks {
-            print!("{} ", task);   
+            print!("{} ", task);
         }
         println!("\n");
     }
@@ -179,16 +184,15 @@ pub fn display_info(
     task: u32,
     neighbor_id: usize,
     neighbor_makespan: u32,
-    
 ) {
-	println!(
-	    "Machine M{} \nMakespan: {}\nTask Time: {}\nNeighbor M{}\nNeighbor makespan: {}\n", 
-	    machine+1, 
-	    makespan, 
-	    task,
-	    neighbor_id,
-	    neighbor_makespan
-	   );
+    println!(
+        "Machine M{} \nMakespan: {}\nTask Time: {}\nNeighbor M{}\nNeighbor makespan: {}\n",
+        machine + 1,
+        makespan,
+        task,
+        neighbor_id,
+        neighbor_makespan
+    );
 }
 
 // PEGO A MÁQUINA COM MAIOR MAKESPAN
@@ -201,42 +205,60 @@ fn local_search_best(mg: &mut MachineGroup) {
     if mg.machines.len() < 2 {
         return;
     }
-    
+
     loop {
         let source_id = mg.max_makespan_machine();
-  
+
         let (task, task_id) = match mg.peek_highest_task(source_id) {
             Some(e) => e,
             None => break,
         };
-        
+
         let dest_id = mg.min_makespan_machine();
-        
-        let source_makespan = mg.machines[source_id].makespan(); 
-        
+
+        let source_makespan = mg.machines[source_id].makespan();
+
         let dest_makespan = mg.machines[dest_id].makespan();
-        
-        if task + dest_makespan <  source_makespan {
+
+        if task + dest_makespan < source_makespan {
             display_info(source_id, source_makespan, task, dest_id, dest_makespan);
             mg.transfer_task(source_id, dest_id, task_id);
-        }
-        else {
+        } else {
             break;
-        }   
+        }
     }
 }
 
 // PEGO A MÁQUINA COM MAIOR MAKESPAN (1)
 // GUARDO O MAKESPAN (16)
 // PEGO UMA TASK DO TOPO (5)
-// TASK.TIME(5) + MAC_VIZINHA.MAKESPAN(0) < MAKESPAN(16) 
+// TASK.TIME(5) + MAC_VIZINHA.MAKESPAN(0) < MAKESPAN(16)
 // TRUE: TRANSFIRO A TASK PARA A MÁQUINA VIZINHA
 // FALSE: ENCERRA O LOOP
 fn local_search_first(mg: &mut MachineGroup) {
     todo!("Sera?");
 }
 
-pub fn main(){
+type Real = f64;
+
+fn temperature(exec_progress: Real) -> Real {
+    const FALLOFF : f64 = 0.8;
+    let t = - exec_progress + 1.0;
+    return t;
+}
+
+fn accept_probability(current_makespan: u32, neighbor_makespan: u32, k: usize, max_k: usize) -> Real {
+    let exec_progress = (k as f64) / (max_k as f64);
+
+    if current_makespan > neighbor_makespan {
+        return 1.0 - temperature(exec_progress);
+    }
+    else {
+        return temperature(exec_progress);
+    }
+}
+
+pub fn main() {
     let mut rng = rand::rng();
 
     let mut group = MachineGroup::new(10);
@@ -246,9 +268,9 @@ pub fn main(){
     }
 
     display_group(&group);
-    
+
     //local_search_first(&mut group);
     local_search_best(&mut group);
-    
+
     display_group(&group);
 }
