@@ -8,6 +8,7 @@ use std::fs::metadata;
 
 type Task = u32;
 
+#[derive(Clone)]
 pub struct Machine {
     tasks: Vec<Task>,
 }
@@ -43,6 +44,14 @@ impl MachineGroup {
             group.machines.push(Machine::new());
         }
         return group;
+    }
+
+    pub fn replace_machine_list(&mut self, machines: Vec<Machine>) {
+        self.machines = machines;
+    }
+
+    pub fn machines_clone(&self) -> Vec<Machine> {
+        return self.machines.clone();
     }
 
     pub fn group_max_makespan(&self) -> usize {
@@ -208,20 +217,82 @@ fn local_search_best(mg: &mut MachineGroup, print_info: bool) -> usize {
     return iter;
 }
 
+fn simulated_annealing(
+    mg: &mut MachineGroup, 
+    alpha: f64, 
+    print_info: bool
+) -> usize {
+    if mg.machines.len() < 2 {
+        return 0;
+    }
+
+    let mut current_makespan = mg.group_max_makespan();
+    let mut best_makespan = current_makespan;
+    let mut best_group = mg.machines_clone();
+
+    let mut iter = 0;
+    let mut temperature = 1.0; 
+
+    loop {
+        iter = iter + 1;
+        if iter > MAX_ITER {
+            break;
+        }
+
+        let source_id = mg.max_makespan_machine();
+
+        let dest_id = mg.select_neighbor_rng(source_id);
+
+        let (task, task_id) = match mg.peek_highest_task(source_id) {
+            Some(e) => e,
+            None => break,
+        };
+
+        let source_makespan = mg.machines[source_id].makespan();
+
+        let dest_makespan = mg.machines[dest_id].makespan();
+
+        let prob = accept_probability(source_makespan, task + dest_makespan, iter);
+
+        if rand::rng().random_range(0.0..=1.0) < prob {
+            mg.transfer_task(source_id, dest_id, task_id);
+            current_makespan = mg.group_max_makespan();
+            if current_makespan < best_makespan {
+                if print_info {
+                    display_info(
+                        source_id, 
+                        source_makespan, 
+                        task, 
+                        dest_id, 
+                        dest_makespan
+                    );
+                }                
+                best_makespan = current_makespan;
+                best_group = mg.machines_clone();
+            }
+        }
+
+        temperature = temperature * alpha;
+        if temperature < 0.01 {
+            break;
+        }
+    }
+    mg.replace_machine_list(best_group);
+    return iter;
+}
+
 fn temperature(exec_progress: f64) -> f64 {
     const FALLOFF : f64 = 0.8;
-    let t = - exec_progress + 1.0;
-    return t;
+    return -exec_progress + 1.0;
 }
 
 fn accept_probability(
     current_makespan: u32, 
     neighbor_makespan: u32, 
     k: usize, 
-    max_k: usize
 ) -> f64 {
-    let exec_progress = (k as f64) / (max_k as f64);
-
+    let exec_progress = (k as f64) / (MAX_ITER as f64);
+        
     if current_makespan > neighbor_makespan {
         return 1.0 - temperature(exec_progress);
     }
@@ -271,11 +342,13 @@ fn write_log(log: Vec<String>) {
     
 }
 
+const MAX_ITER: usize = 1000;
+
 pub fn main() {
     const M: [usize; 3] = [10, 20, 50];
     const R: [f32; 2] = [1.5, 2.0];
-    const IS_BLM: bool = true;
-    const PRINT_INFO: bool = false;
+    const IS_BLM: bool = false;
+    const PRINT_INFO: bool = true;
     
     let mut log: Vec<String> = Vec::new();
 
@@ -298,6 +371,8 @@ pub fn main() {
                     iter = local_search_best(&mut group, PRINT_INFO); 
                 }
                 else {
+                    let alpha = 0.8; 
+                    iter = simulated_annealing(&mut group, alpha, PRINT_INFO);
                 }
                 let elapsed = time_now.elapsed().as_millis();
                 if PRINT_INFO { display_group(&group); }
@@ -311,20 +386,10 @@ pub fn main() {
                     group.group_max_makespan(),
                     0,
                 ));
-                //break 'outer;
+                break 'outer; // TODO: REMOVER
             }
         }
     }
     
     write_log(log);
-    /*
-    let mut rng = rand::rng();
-    let mut group = MachineGroup::new(10);
-    for _ in 0..32 {
-        group.push_task(0, rng.random_range(1..=30));
-    }
-    local_search_best(&mut group, false);
-    display_group(&group);
-    write_log();
-    */
 }
