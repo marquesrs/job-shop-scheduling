@@ -7,7 +7,7 @@ use std::io::prelude::*;
 use std::time::Instant;
 use std::fs::metadata;
 
-type Task = u32;
+type Task = i32;
 
 #[derive(Clone)]
 pub struct Machine {
@@ -15,8 +15,8 @@ pub struct Machine {
 }
 
 impl Machine {
-    pub fn makespan(&self) -> u32 {
-        let mut acc = 0u32;
+    pub fn makespan(&self) -> i32 {
+        let mut acc = 0i32;
         for task in &self.tasks {
             acc += *task;
         }
@@ -84,7 +84,7 @@ impl MachineGroup {
     }
 
     pub fn min_makespan_machine(&self) -> usize {
-        let mut min = u32::MAX;
+        let mut min = i32::MAX;
         let mut min_idx = 0;
         for i in 0..self.machines.len() {
             if self.machines[i].makespan() < min {
@@ -166,10 +166,10 @@ pub fn display_group(group: &MachineGroup) {
 
 pub fn display_info(
     machine: usize,
-    makespan: u32,
-    task: u32,
+    makespan: i32,
+    task: i32,
     neighbor_id: usize,
-    neighbor_makespan: u32,
+    neighbor_makespan: i32,
 ) {
     println!(
         "Machine M{} \nMakespan: {}\nTask Time: {}\nNeighbor M{}\nNeighbor makespan: {}\n",
@@ -238,22 +238,21 @@ fn simulated_annealing(
     }
 
     let mut current_makespan = mg.group_max_makespan();
-    let mut best_makespan = current_makespan;
-    let mut best_group = mg.machines_clone();
+    // let mut best_makespan = current_makespan;
+    // let mut best_group = mg.machines_clone();
 
     let mut iter = 0;
-    let max_iter = mg.machine_count();
+    // let max_iter = mg.machine_count();
 
-    let mut current_temp = 0.0;
+    let mut current_temp = 10000000.0;
 
     loop {
         iter += 1;
-        if iter > max_iter {
-            break;
-        }
+
         let source_id = mg.max_makespan_machine();
 
-        let dest_id = mg.select_neighbor_rng(source_id);
+        let dest_id = mg.min_makespan_machine(); // TODO: Not 100% random, proportional to temp
+        // let dest_id = mg.select_neighbor_rng(source_id); // TODO: Not 100% random, proportional to temp
 
         let (task, task_id) = match mg.peek_highest_task(source_id) {
             Some(e) => e,
@@ -264,36 +263,31 @@ fn simulated_annealing(
 
         let dest_makespan = mg.machines[dest_id].makespan();
 
-        let temp = temperature(iter as f64);
-        let prob = accept_probability(source_makespan, task + dest_makespan, iter);
+        let accept_swap = accept(source_makespan, dest_makespan, current_temp);
 
-        if rand::rng().random_range(0.0..=1.0) < prob {
+        if accept_swap {
             mg.transfer_task(source_id, dest_id, task_id);
-            current_makespan = mg.group_max_makespan();
-            if current_makespan < best_makespan {
-                if print_info {
-                    display_info(
-                        source_id,
-                        source_makespan,
-                        task,
-                        dest_id,
-                        dest_makespan
-                    );
-                }
-                best_makespan = current_makespan;
-                best_group = mg.machines_clone();
-            }
+            // current_makespan = mg.group_max_makespan();
+            // if current_makespan < best_makespan {
+            //     if print_info {
+            //         display_info(
+            //             source_id,
+            //             source_makespan,
+            //             task,
+            //             dest_id,
+            //             dest_makespan
+            //         );
+            //     }
+            //     best_makespan = current_makespan;
+            //     best_group = mg.machines_clone();
+            // }
         }
-
-        if temp < 1e-12 { println!("Temp too small after {}", iter); break }
+        
+        current_temp = current_temp * alpha;
+        if current_temp < 1e-18 { println!("Temp too small after {}", iter); break }
+        // if iter > max_iter { println!("Too many iter"); break; }
     }
-    mg.replace_machine_list(best_group);
     return iter;
-}
-
-fn temperature(iter_count: f64) -> f64 {
-    const FALLOFF : f64 = 0.95;
-    return FALLOFF.powf(iter_count) * 1.0;
 }
 
 fn accept(
@@ -305,13 +299,15 @@ fn accept(
     const BOLTZMANN : f64 = 1.380649e-23;
     let dist = rand::distr::Uniform::new(0.0, 1.0).unwrap();
 
+    let r = dist.sample(&mut rand::rng());
+    let p = EULER.powf(-delta / temp);
+    println!("{}", p);
+
     // Energy has been reduced, nice
     if delta < 0.0 {
         return true;
     }
     else {
-        let r = dist.sample(&mut rand::rng());
-        let p = EULER.powf(-delta / temp);
         if r < p {
             return true;
         }
@@ -369,16 +365,29 @@ enum Heuristic {
 }
 
 pub fn main() {
-    // const M: [usize; 3] = [10, 20, 50];
     const M: [usize; 1] = [20];
-    // const R: [f32; 2] = [1.5, 2.0];
     const R: [f32; 1] = [2.0];
     let heuristic = Heuristic::SimulatedAnnealing;
     const PRINT_INFO: bool = false;
 
     let mut log: Vec<String> = Vec::new();
-
     let mut rng = rand::rng();
+
+    const MACH : i32 = 20;
+    const TASKS : i32 = 400;
+
+    let mut group = MachineGroup::new(20);
+
+    for _ in 0..TASKS {
+        group.push_task(0, rng.random_range(1..=100) as Task);
+    }
+    
+    simulated_annealing(&mut group, 0.99, true);
+    display_group(&group);
+
+    write_log(log);
+}
+
 
     // 'outer: for m in M {
     //     let mut group = MachineGroup::new(m);
@@ -424,6 +433,3 @@ pub fn main() {
     //         }
     //     }
     // }
-
-    write_log(log);
-}
