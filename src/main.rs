@@ -231,24 +231,22 @@ const EULER : f64 = 2.718281828459045;
 fn simulated_annealing(
     mg: &mut MachineGroup,
     alpha: f64,
-    print_info: bool
+    makespan_threshold: usize,
 ) -> usize {
     if mg.machines.len() < 2 {
         return 0;
     }
 
-    let mut current_makespan = mg.group_max_makespan();
     // let mut best_makespan = current_makespan;
     // let mut best_group = mg.machines_clone();
 
     let mut iter = 0;
     // let max_iter = mg.machine_count();
+    let min_iter = (mg.machine_count() as f64 * alpha) as usize;
 
-    let mut current_temp = 10000000.0;
+    let mut current_temp = 1000.0;
 
     loop {
-        iter += 1;
-
         let source_id = mg.max_makespan_machine();
 
         let dest_id = mg.min_makespan_machine(); // TODO: Not 100% random, proportional to temp
@@ -260,31 +258,20 @@ fn simulated_annealing(
         };
 
         let source_makespan = mg.machines[source_id].makespan();
-
         let dest_makespan = mg.machines[dest_id].makespan();
 
         let accept_swap = accept(source_makespan, dest_makespan, current_temp);
 
         if accept_swap {
             mg.transfer_task(source_id, dest_id, task_id);
-            // current_makespan = mg.group_max_makespan();
-            // if current_makespan < best_makespan {
-            //     if print_info {
-            //         display_info(
-            //             source_id,
-            //             source_makespan,
-            //             task,
-            //             dest_id,
-            //             dest_makespan
-            //         );
-            //     }
-            //     best_makespan = current_makespan;
-            //     best_group = mg.machines_clone();
-            // }
         }
         
         current_temp = current_temp * alpha;
-        if current_temp < 1e-18 { println!("Temp too small after {}", iter); break }
+        iter += 1;
+        let current_makespan = mg.group_max_makespan();
+
+        if current_makespan <= makespan_threshold { println!("Reached threshold after {}", iter); break; }
+        if current_temp < 1e-18  { println!("Temp too small after {}", iter); break }
         // if iter > max_iter { println!("Too many iter"); break; }
     }
     return iter;
@@ -296,11 +283,10 @@ fn accept(
     temp: f64,
 ) -> bool {
     let delta = (current_makespan - neighbor_makespan) as f64;
-    const BOLTZMANN : f64 = 1.380649e-23;
     let dist = rand::distr::Uniform::new(0.0, 1.0).unwrap();
 
     let r = dist.sample(&mut rand::rng());
-    let p = EULER.powf(-delta / temp);
+    let p = EULER.powf(-delta / (temp * 1_000.0));
     println!("{}", p);
 
     // Energy has been reduced, nice
@@ -382,7 +368,7 @@ pub fn main() {
         group.push_task(0, rng.random_range(1..=100) as Task);
     }
     
-    simulated_annealing(&mut group, 0.99, true);
+    simulated_annealing(&mut group, 0.998, 1000);
     display_group(&group);
 
     write_log(log);
