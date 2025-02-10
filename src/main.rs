@@ -1,3 +1,4 @@
+use rand::distr::Distribution;
 use rand::{random_range, Rng};
 use std::fs::{self, File, OpenOptions};
 use std::path::Path;
@@ -44,6 +45,14 @@ impl MachineGroup {
             group.machines.push(Machine::new());
         }
         return group;
+    }
+
+    pub fn machine_count(&self) -> usize {
+        let mut count : usize = 0;
+        for mach in &self.machines {
+            count += mach.tasks.len();
+        }
+        return count;
     }
 
     pub fn replace_machine_list(&mut self, machines: Vec<Machine>) {
@@ -202,10 +211,10 @@ fn local_search_best(mg: &mut MachineGroup, print_info: bool) -> usize {
         if task + dest_makespan < source_makespan {
             if print_info {
                 display_info(
-                    source_id, 
-                    source_makespan, 
-                    task, 
-                    dest_id, 
+                    source_id,
+                    source_makespan,
+                    task,
+                    dest_id,
                     dest_makespan
                 );
             }
@@ -217,9 +226,11 @@ fn local_search_best(mg: &mut MachineGroup, print_info: bool) -> usize {
     return iter;
 }
 
+const EULER : f64 = 2.718281828459045;
+
 fn simulated_annealing(
-    mg: &mut MachineGroup, 
-    alpha: f64, 
+    mg: &mut MachineGroup,
+    alpha: f64,
     print_info: bool
 ) -> usize {
     if mg.machines.len() < 2 {
@@ -231,14 +242,15 @@ fn simulated_annealing(
     let mut best_group = mg.machines_clone();
 
     let mut iter = 0;
-    let mut temperature = 1.0; 
+    let max_iter = mg.machine_count();
+
+    let mut current_temp = 0.0;
 
     loop {
-        iter = iter + 1;
-        if iter > MAX_ITER {
+        iter += 1;
+        if iter > max_iter {
             break;
         }
-
         let source_id = mg.max_makespan_machine();
 
         let dest_id = mg.select_neighbor_rng(source_id);
@@ -252,6 +264,7 @@ fn simulated_annealing(
 
         let dest_makespan = mg.machines[dest_id].makespan();
 
+        let temp = temperature(iter as f64);
         let prob = accept_probability(source_makespan, task + dest_makespan, iter);
 
         if rand::rng().random_range(0.0..=1.0) < prob {
@@ -260,49 +273,54 @@ fn simulated_annealing(
             if current_makespan < best_makespan {
                 if print_info {
                     display_info(
-                        source_id, 
-                        source_makespan, 
-                        task, 
-                        dest_id, 
+                        source_id,
+                        source_makespan,
+                        task,
+                        dest_id,
                         dest_makespan
                     );
-                }                
+                }
                 best_makespan = current_makespan;
                 best_group = mg.machines_clone();
             }
         }
 
-        temperature = temperature * alpha;
-        if temperature < 0.01 {
-            break;
-        }
+        if temp < 1e-12 { println!("Temp too small after {}", iter); break }
     }
     mg.replace_machine_list(best_group);
     return iter;
 }
 
-fn temperature(exec_progress: f64) -> f64 {
-    const FALLOFF : f64 = 0.8;
-    return -exec_progress + 1.0;
+fn temperature(iter_count: f64) -> f64 {
+    const FALLOFF : f64 = 0.95;
+    return FALLOFF.powf(iter_count) * 1.0;
 }
 
-fn accept_probability(
-    current_makespan: u32, 
-    neighbor_makespan: u32, 
-    k: usize, 
-) -> f64 {
-    let exec_progress = (k as f64) / (MAX_ITER as f64);
-        
-    if current_makespan > neighbor_makespan {
-        return 1.0 - temperature(exec_progress);
+fn accept(
+    current_makespan: i32,
+    neighbor_makespan: i32,
+    temp: f64,
+) -> bool {
+    let delta = (current_makespan - neighbor_makespan) as f64;
+    const BOLTZMANN : f64 = 1.380649e-23;
+    let dist = rand::distr::Uniform::new(0.0, 1.0).unwrap();
+
+    // Energy has been reduced, nice
+    if delta < 0.0 {
+        return true;
     }
     else {
-        return temperature(exec_progress);
+        let r = dist.sample(&mut rand::rng());
+        let p = EULER.powf(-delta / temp);
+        if r < p {
+            return true;
+        }
+        return false;
     }
 }
 
 fn log_string(
-    is_blm: bool,
+    heuristic: Heuristic,
     n: usize,
     m: usize,
     rep: usize,
@@ -311,12 +329,14 @@ fn log_string(
     makespan: usize,
     parameter: usize,
 ) -> String {
-    let heuristic = if is_blm {
-        "Local Search Best Improvement"
-    } else { "Simulated Annealing" };
-    let parameter = if is_blm {String::from("0")} else {parameter.to_string()};
+    let heuristic_name = match heuristic {
+        Heuristic::SimulatedAnnealing => "SimulatedAnnealing",
+        Heuristic::LocalSearchBest => "LocalSearchBest",
 
-    return format!("{heuristic}, {n}, {m}, {rep}, {time}, {iter}, {makespan}, {parameter}\n");
+    };
+    let parameter = if heuristic == Heuristic::LocalSearchBest {String::from("N/A")} else {parameter.to_string()};
+
+    return format!("{heuristic_name}, {n}, {m}, {rep}, {time}, {iter}, {makespan}, {parameter}\n");
 }
 
 fn write_log(log: Vec<String>) {
@@ -324,72 +344,86 @@ fn write_log(log: Vec<String>) {
     let file_exists = Path::new(file_path).exists();
 
     let mut file = OpenOptions::new()
-        .append(true)    
-        .create(true)    
+        .append(true)
+        .create(true)
         .open(file_path)
         .expect("BURRO");
 
     let file_metadata = fs::metadata(file_path).expect("BURRO");
 
     if !file_exists || file_metadata.len() == 0 {
-        let header = "heuristica, n, m, replicacao, tempo, iteracoes, valor, parametro\n";
+        let header = "heuristica,n,m,replicacao,tempo_ns,iteracoes,makespan,parametro\n";
         file.write_all(header.as_bytes()).expect("BURRO");
     }
 
     for record in log {
         file.write_all(record.as_bytes()).expect("BURRO");
     }
-    
+
 }
 
-const MAX_ITER: usize = 1000;
+#[derive(PartialEq, Copy, Clone)]
+enum Heuristic {
+    SimulatedAnnealing,
+    LocalSearchBest,
+}
 
 pub fn main() {
-    const M: [usize; 3] = [10, 20, 50];
-    const R: [f32; 2] = [1.5, 2.0];
-    const IS_BLM: bool = false;
-    const PRINT_INFO: bool = true;
-    
+    // const M: [usize; 3] = [10, 20, 50];
+    const M: [usize; 1] = [20];
+    // const R: [f32; 2] = [1.5, 2.0];
+    const R: [f32; 1] = [2.0];
+    let heuristic = Heuristic::SimulatedAnnealing;
+    const PRINT_INFO: bool = false;
+
     let mut log: Vec<String> = Vec::new();
 
     let mut rng = rand::rng();
 
-    let mut group = MachineGroup::new(1);
-    
-    'outer: for m in M {
-        group = MachineGroup::new(m);
-        for r in R {
-            for rep in 0..10 {
-                let m = m as f32;
-                let n = m.powf(r).ceil() as usize;
-                for _ in 0..n {
-                    group.push_task(0, rng.random_range(1..=100) as Task);
-                }
-                let mut iter: usize = 0;
-                let time_now = time::Instant::now();
-                if IS_BLM { 
-                    iter = local_search_best(&mut group, PRINT_INFO); 
-                }
-                else {
-                    let alpha = 0.8; 
-                    iter = simulated_annealing(&mut group, alpha, PRINT_INFO);
-                }
-                let elapsed = time_now.elapsed().as_millis();
-                if PRINT_INFO { display_group(&group); }
-                log.push(log_string(
-                    IS_BLM, 
-                    n, 
-                    m as usize, 
-                    rep, 
-                    elapsed as usize, 
-                    iter, 
-                    group.group_max_makespan(),
-                    0,
-                ));
-                break 'outer; // TODO: REMOVER
-            }
-        }
-    }
-    
+    // 'outer: for m in M {
+    //     let mut group = MachineGroup::new(m);
+    //     for r in R {
+    //         let mut rep = 1;
+    //         let rep_max = 1000;
+    //         while rep <= rep_max {
+    //             println!("{}/{}", rep, rep_max);
+    //             let m = m as f32;
+    //             let n = rep;
+    //             // let n = m.powf(r).ceil() as usize;
+    //             for _ in 0..n {
+    //                 group.push_task(0, rng.random_range(1..=100) as Task);
+    //             }
+    //             let mut iter: usize = 0;
+    //             let time_now = time::Instant::now();
+       
+    //             match heuristic {
+    //                 Heuristic::SimulatedAnnealing => {
+    //                     let alpha = 0.8;
+    //                     iter = simulated_annealing(&mut group, alpha, PRINT_INFO);    
+    //                 },
+    //                 Heuristic::LocalSearchBest => {
+    //                     iter = local_search_best(&mut group, PRINT_INFO);
+    //                 }
+    //             };
+
+    //             let elapsed = time_now.elapsed().as_nanos();
+    //             if PRINT_INFO { display_group(&group); }
+
+    //             log.push(log_string(
+    //                 heuristic,
+    //                 n,
+    //                 m as usize,
+    //                 rep,
+    //                 elapsed as usize,
+    //                 iter,
+    //                 group.group_max_makespan(),
+    //                 0,
+    //             ));
+
+    //             rep += 10;
+    //         }
+    //     }
+    // }
+
     write_log(log);
 }
