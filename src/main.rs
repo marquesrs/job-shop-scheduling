@@ -1,11 +1,8 @@
 use rand::distr::Distribution;
 use rand::{random_range, Rng};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::path::Path;
-use std::{io, time};
 use std::io::prelude::*;
-use std::time::Instant;
-use std::fs::metadata;
 
 type Task = i32;
 
@@ -32,14 +29,18 @@ impl Machine {
     }
 }
 
+type MachineId = usize;
+
 pub struct MachineGroup {
     machines: Vec<Machine>,
+    most_loaded: MachineId,
 }
 
 impl MachineGroup {
     pub fn new(mach_count: usize) -> Self {
         let mut group = MachineGroup {
             machines: Vec::new(),
+            most_loaded: 0,
         };
         for _ in 0..mach_count {
             group.machines.push(Machine::new());
@@ -47,7 +48,7 @@ impl MachineGroup {
         return group;
     }
 
-    pub fn machine_count(&self) -> usize {
+    pub fn tasks_count(&self) -> usize {
         let mut count : usize = 0;
         for mach in &self.machines {
             count += mach.tasks.len();
@@ -71,18 +72,6 @@ impl MachineGroup {
         return max_span as usize;
     }
 
-    pub fn max_makespan_machine(&self) -> usize {
-        let mut max = 0;
-        let mut max_idx = 0;
-        for i in 0..self.machines.len() {
-            if self.machines[i].makespan() > max {
-                max = self.machines[i].makespan();
-                max_idx = i;
-            }
-        }
-        return max_idx;
-    }
-
     pub fn min_makespan_machine(&self) -> usize {
         let mut min = i32::MAX;
         let mut min_idx = 0;
@@ -95,11 +84,11 @@ impl MachineGroup {
         return min_idx;
     }
 
-    pub fn select_neighbor_rng(&self, mach_id: usize) -> usize {
+    pub fn select_neighbor_rng(&self, current: MachineId) -> usize {
         assert!(self.machines.len() > 1, "Cannot pick random neighbor without at least 2 machines");
         loop {
             let neighbor = random_range(0..self.machines.len());
-            if neighbor != mach_id {
+            if neighbor != current {
                 return neighbor;
             }
         }
@@ -122,30 +111,49 @@ impl MachineGroup {
         return Some((self.machines[mach_id].tasks[max_idx], max_idx));
     }
 
-    fn pop_task(&mut self, mach_id: usize, task_id: usize) -> Option<Task> {
+    fn pop_task(&mut self, mach_id: MachineId, task_id: usize) -> Option<Task> {
         if task_id >= self.machines[mach_id].tasks.len() {
             return None;
         }
         return Some(self.machines[mach_id].tasks.swap_remove(task_id));
     }
 
-    fn push_task(&mut self, mach_id: usize, task: Task) {
+    fn push_task(&mut self, mach_id: MachineId, task: Task) {
         self.machines[mach_id].tasks.push(task);
+        if self.machines[mach_id].makespan() > self.machines[self.most_loaded].makespan() {
+            self.most_loaded = mach_id;
+        }
+    }
+
+
+    fn update_most_loaded(&mut self){
+        let mut max_id = 0;
+        let mut max_span = 0;
+        for mach_id in 0..self.machines.len() {
+            let mach_span =self.machines[mach_id].makespan();
+            if mach_span > max_span {
+                max_span = mach_span;
+                max_id = mach_id;
+            }
+        }
+        self.most_loaded = max_id;
     }
 
     pub fn transfer_task(
         &mut self,
-        source_id: usize,
-        dest_id: usize,
+        source_id: MachineId,
+        dest_id: MachineId,
         task_id: usize,
     ) -> bool {
-        match self.pop_task(source_id, task_id) {
+        let res = match self.pop_task(source_id, task_id) {
             Some(e) => {
                 self.push_task(dest_id, e);
                 true
             }
             None => false,
-        }
+        };
+        self.update_most_loaded();
+        return res;
     }
 }
 
@@ -195,7 +203,7 @@ fn local_search_best(mg: &mut MachineGroup, print_info: bool) -> usize {
     loop {
         iter = iter + 1;
 
-        let source_id = mg.max_makespan_machine();
+        let source_id = mg.most_loaded;
 
         let (task, task_id) = match mg.peek_highest_task(source_id) {
             Some(e) => e,
@@ -237,30 +245,21 @@ fn simulated_annealing(
         return 0;
     }
 
-    // let mut best_makespan = current_makespan;
-    // let mut best_group = mg.machines_clone();
-
     let mut iter = 0;
-    // let max_iter = mg.machine_count();
-    let min_iter = (mg.machine_count() as f64 * alpha) as usize;
 
     let mut current_temp = 1000.0;
 
     loop {
-        let source_id = mg.max_makespan_machine();
+        let source_id = mg.most_loaded;
 
-        let dest_id = mg.min_makespan_machine(); // TODO: Not 100% random, proportional to temp
-        // let dest_id = mg.select_neighbor_rng(source_id); // TODO: Not 100% random, proportional to temp
+        let dest_id = mg.select_neighbor_rng(source_id); // TODO: Not 100% random, proportional to temp
 
-        let (task, task_id) = match mg.peek_highest_task(source_id) {
+        let (_, task_id) = match mg.peek_highest_task(source_id) {
             Some(e) => e,
             None => break,
         };
 
-        let source_makespan = mg.machines[source_id].makespan();
-        let dest_makespan = mg.machines[dest_id].makespan();
-
-        let accept_swap = accept(source_makespan, dest_makespan, current_temp);
+        let accept_swap = annealing_swap(mg, source_id, dest_id, task_id, current_temp);
 
         if accept_swap {
             mg.transfer_task(source_id, dest_id, task_id);
@@ -272,31 +271,41 @@ fn simulated_annealing(
 
         if current_makespan <= makespan_threshold { println!("Reached threshold after {}", iter); break; }
         if current_temp < 1e-18  { println!("Temp too small after {}", iter); break }
-        // if iter > max_iter { println!("Too many iter"); break; }
     }
     return iter;
 }
 
-fn accept(
-    current_makespan: i32,
-    neighbor_makespan: i32,
+fn annealing_swap(
+    mg: &mut MachineGroup,
+    source_id: MachineId,
+    neighbor_id: MachineId,
+    task_id: usize,
     temp: f64,
 ) -> bool {
-    let delta = (current_makespan - neighbor_makespan) as f64;
+    // let delta = (current_makespan - neighbor_makespan) as f64;
     let dist = rand::distr::Uniform::new(0.0, 1.0).unwrap();
 
-    let r = dist.sample(&mut rand::rng());
-    let p = EULER.powf(-delta / (temp * 1_000.0));
-    println!("{}", p);
+    let old_max = mg.machines[mg.most_loaded].makespan() as f64;
+    mg.transfer_task(source_id, neighbor_id, task_id);
+    let new_max = mg.machines[mg.most_loaded].makespan() as f64;
+
+    let delta = new_max - old_max;
 
     // Energy has been reduced, nice
     if delta < 0.0 {
         return true;
     }
     else {
+        let r = dist.sample(&mut rand::rng());
+        let p = EULER.powf(-delta / (temp));    
         if r < p {
+            // Accept swap regardless of delta energy
             return true;
         }
+        
+        // Revert change
+        let last_id = mg.machines[neighbor_id].tasks.len() - 1;
+        mg.transfer_task(neighbor_id, source_id, last_id);
         return false;
     }
 }
